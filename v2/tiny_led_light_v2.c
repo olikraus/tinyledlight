@@ -1,6 +1,6 @@
 /*
 
-  led_light.c
+  tiny_led_light_v2.c
   
   Copyright (c) 2012, olikraus@gmail.com
   All rights reserved.
@@ -28,6 +28,11 @@
   STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) 
   ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF 
   ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.  
+  
+  Features
+  - clap control 
+  - 1000 Hz Interrupt
+  
   
 */
 
@@ -209,7 +214,7 @@ uint8_t pin_state = 0;
 
 ISR(TIMER0_OVF_vect)
 {
-  // TCNT0 = 255-125;
+  TCNT0 = 255-125;			/* restart at 130 count up to 255 --> 1000 Hz */
   DDRB |= _BV(3);
   DDRB |= _BV(2);
 
@@ -227,11 +232,12 @@ ISR(TIMER0_OVF_vect)
   
   setup_timer1_one_shot();      
   
-  raw_adc_value = get_adc();
-  adc_value = low_pass(&adc_z, raw_adc_value, 3);
-  //    adc_value = raw_adc_value;
-  detect_idle_timeout();
-  calculate_factor_and_len_2();
+    raw_adc_value = get_adc();
+    adc_value = low_pass(&adc_z, raw_adc_value, 3);
+    //    adc_value = raw_adc_value;
+    detect_idle_timeout();
+    calculate_factor_and_len_2();
+  
   // PORTB &= ~_BV(2);
 }
 
@@ -243,6 +249,7 @@ ISR(TIMER0_OVF_vect)
   - overflow after 256 counts
   - prescalar 64
   - 8Mhz / (256*64) = 488 Hz
+  - 8Mhz / ((256-125)*64) = 1000 Hz
 */
 void setup_timer0_overflow(void)
 {
