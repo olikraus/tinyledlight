@@ -4,11 +4,15 @@
 
 #define ADC_RING_BUFFER_SIZE 6
 
-#define STATE_SILENCE_WAIT			0
-#define STATE_NOISE_DETECTED		1
-#define STATE_CONFIRM_ON_1			2
-#define STATE_CONFIRM_ON_2			3
-
+#define STATE_LIGHT_OFF 0
+#define STATE_LIGHT_OFF_NOISE 1
+#define STATE_LIGHT_OFF_WAIT 2
+#define STATE_LIGHT_OFF_FLASH 3
+#define STATE_INCREMENT_LIGHT 4
+#define STATE_LIGHT_ON 5
+#define STATE_LIGHT_ON_NOISE 6
+#define STATE_LIGHT_ON_WAIT 7
+#define STATE_DECREMENT_LIGHT 8
 
 
 /* ===== calibration variables ===== */
@@ -54,40 +58,40 @@ uint16_t confirm_off_time;
 /* ===== signals/variables ===== */
 int16_t adc_differential_value;
 int16_t adc_amplitude;
-uint8_t is_noise; /* 1, if adc_amplitude is above noise_intensity */
-uint8_t state = STATE_SILENCE_WAIT;
-
-/*
-    0: led light is off
-    1: led light is controlled by state machine
-	  led value taken from led_direct_value
-    2:	led light is controlled by user (potentiometer)
-	  led value taken from led_target_value and led_current_value;
-*/
-#define LED_OFF 0
-#define LED_STATE_MACHINE 1
-#define LED_USER 2
-
-uint8_t  led_control = LED_OFF;
+uint8_t nd; /* 1, if adc_amplitude is above noise_intensity */
+uint8_t lt;		/* current light value */
+uint8_t state = STATE_LIGHT_OFF;
 
 
-uint16_t count;
+
+
+uint16_t cnt;
+uint16_t lcnt;
 int16_t adc_rb_mem[ADC_RING_BUFFER_SIZE];
 uint8_t adc_rb_pos = 0;
 
 
 /* ===== helper procedures ===== */
 
-void cnt_reset(void)
+void cnt_zero(void)
 {
-  count = 0;
+  cnt = 0;
 }
 
 void cnt_inc(void)
 {
-  count++;
+  cnt++;
 }
 
+void lcnt_zero(void)
+{
+  lcnt = 0;
+}
+
+void lcnt_inc(void)
+{
+  lcnt++;
+}
 
 
 void adc_rb_init(void)
@@ -136,7 +140,7 @@ int16_t adc_rb_get_min(void)
 
 /*
   input: adc_differential_value
-  output: is_noise
+  output: nd
 */
 void detect_noise(void)
 {
@@ -147,53 +151,49 @@ void detect_noise(void)
   adc_amplitude = adc_rb_get_max() - adc_rb_get_min();
   
   /* check if we have a noise detected */
-  is_noise = 0;
+  nd = 0;
   if ( adc_amplitude > noise_intensity )
-    is_noise = 1;
+    nd = 1;
 }
 
 
 
 void state_machine(void)
 {
-  cnt_inc();
   switch(state)
   {
-    case STATE_SILENCE_WAIT:
-      if ( is_noise != 0 )
+    case STATE_LIGHT_OFF:
+      if ( nd != 0 )
       {
-	cnt_reset();
-	state = STATE_NOISE_DETECTED;
+	cnt_zero();
+	state = STATE_LIGHT_OFF_NOISE;
+      }
+      if ( pm != 0 )
+      {
+	state = STATE_INCREMENT_LIGHT;
       }
       break;
-    case STATE_NOISE_DETECTED:
-      if ( count > noise_max_time )
-      {
-	state = STATE_NOISE_WAIT;		/* noise too long */
-      }
-      else if ( is_noise == 0 && count < noise_min_time )
-      {
-	state = STATE_SILENCE_WAIT;		/* noise too short */
-      }
-      else if ( is_noise == 0 && led_control == LED_OFF )
-      {
-	state = STATE_CONFIRM_ON_1;		/* clap detected */
-	cnt_reset();
-	led_control = LED_STATE_MACHINE;
-      }
-      else if ( is_noise == 0 )
-      {
-	state = STATE_CONFIRM_OFF_1;		/* clap detected */
-	cnt_reset();
-	led_control = LED_STATE_MACHINE;
-      }
-    case STATE_NOISE_WAIT:
-      if ( is_noise == 0 )
-	state = STATE_SILENCE_WAIT;
+    case STATE_LIGHT_OFF_NOISE:
       
       break;
+    case STATE_LIGHT_OFF_WAIT:
+      break;
+    case STATE_LIGHT_OFF_FLASH:
+      break;
+    case STATE_INCREMENT_LIGHT:
+      break;
+    case STATE_LIGHT_ON:
+      break;
+    case STATE_LIGHT_ON_NOISE:
+      break;
+    case STATE_LIGHT_ON_WAIT:
+      break;
+    case STATE_DECREMENT_LIGHT:
+      break;
     default:
-      state = STATE_SILENCE_WAIT;
+      state = STATE_LIGHT_OFF;
       break;
   }
+  cnt_inc();
+
 }
