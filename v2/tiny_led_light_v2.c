@@ -75,10 +75,12 @@ void delay_milli_seconds(uint8_t x)
 /* ADC */
 void setup_adc(void)
 {
-  DDRB &= ~_BV(4);              // use PB4/ADC2 as input pin for the ADC
-  ADMUX = 2;	                        // Vcc as reference, ADC 2
+  // version 2: ADC changed to pin 7, PB2, ADC1 (v1 has used PB2/ADC2)  
+  // DDRB &= ~_BV(4);              // v1: use PB4/ADC2 as input pin for the ADC
+  DDRB &= ~_BV(2);              // v2: use PB2/ADC1 as input pin for the ADC
+  PORTB &= ~_BV(2);		// switch off pull-up
+  ADMUX = 1;	                        // Vcc as reference, ADC 1 (v1 has used ADMUX = 2 with ADC 2)
   ADCSRB = 0x0;                         // default operation
-  
 }
 
 uint16_t get_adc(void)
@@ -89,7 +91,7 @@ uint16_t get_adc(void)
   /* wait for conversion to be finished */
   while ( ADCSRA == 0xc4 )
     ;
-  /* return 8 bit result */
+  /* return result */
   l = ADCL;
   h = ADCH;
   return (h<<8) | l ;
@@ -216,9 +218,9 @@ ISR(TIMER0_OVF_vect)
 {
   TCNT0 = 255-125;			/* restart at 130 count up to 255 --> 1000 Hz */
   DDRB |= _BV(3);
-  DDRB |= _BV(2);
+  //DDRB |= _BV(0);
 
-  // PORTB |= _BV(2);
+  // PORTB |= _BV(0);
   
   if ( pin_state == 0 )
     pin_state = 1;
@@ -233,12 +235,13 @@ ISR(TIMER0_OVF_vect)
   setup_timer1_one_shot();      
   
     raw_adc_value = get_adc();
+  //raw_adc_value = 512;
     adc_value = low_pass(&adc_z, raw_adc_value, 3);
     //    adc_value = raw_adc_value;
     detect_idle_timeout();
     calculate_factor_and_len_2();
   
-  // PORTB &= ~_BV(2);
+  // PORTB &= ~_BV(0);
 }
 
 
