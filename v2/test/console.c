@@ -34,6 +34,11 @@ uint16_t noise_max_time = 20;
 */
 uint16_t noise_min_time = 7;	 
 /*
+  confirmation light intensity 
+  range: 1...255
+*/
+uint16_t confirm_on_flash_lt = 255;
+/*
   number of ticks for flash on confirmation time, one tick is 1ms, should be 300 
   range: 1...999
 */
@@ -60,6 +65,7 @@ int16_t adc_differential_value;
 int16_t adc_amplitude;
 uint8_t nd; /* 1, if adc_amplitude is above noise_intensity */
 uint8_t lt;		/* current light value */
+uint8_t pot;	/* var potentiometer position */
 uint8_t state = STATE_LIGHT_OFF;
 
 
@@ -163,24 +169,61 @@ void state_machine(void)
   switch(state)
   {
     case STATE_LIGHT_OFF:
-      if ( nd != 0 )
-      {
-	cnt_zero();
-	state = STATE_LIGHT_OFF_NOISE;
-      }
       if ( pm != 0 )
       {
 	state = STATE_INCREMENT_LIGHT;
       }
+      else if ( nd != 0 )
+      {
+	cnt_zero();
+	state = STATE_LIGHT_OFF_NOISE;
+      }
       break;
     case STATE_LIGHT_OFF_NOISE:
-      
+      if ( pm != 0 )
+      {
+	state = STATE_INCREMENT_LIGHT;
+      }
+      else if ( nd == 0 && cnt < noise_min_time )
+      {
+	state = STATE_LIGHT_OFF;
+      }
+      else if ( nd == 0 && noise_min_time <= cnt && cnt <= noise_max_time )
+      {
+	lt = confirm_on_flash_lt;
+	state = STATE_LIGHT_OFF_FLASH;
+      }
+      else if ( /* nd == 1 && */ cnt > noise_max_time )
+      {
+	state = STATE_LIGHT_OFF_WAIT;	
+      }
       break;
     case STATE_LIGHT_OFF_WAIT:
+      if ( pm != 0 )
+      {
+	state = STATE_INCREMENT_LIGHT;
+      }
+      else if ( nd == 0 )
+      {
+	state = STATE_LIGHT_OFF;
+      }
       break;
     case STATE_LIGHT_OFF_FLASH:
+      if ( pm != 0 )
+      {
+	state = STATE_INCREMENT_LIGHT;
+      }
+      else if ( cnt >= confirm_on_flash_time )
+      {
+	lt = 0;
+	state = STATE_INCREMENT_LIGHT;	
+      }
       break;
     case STATE_INCREMENT_LIGHT:
+      if ( lt >= pot )
+      {
+	lcnt_zero();
+      }
       break;
     case STATE_LIGHT_ON:
       break;
