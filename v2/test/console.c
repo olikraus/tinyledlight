@@ -58,6 +58,12 @@ uint16_t confirm_off_initial_pwm;
   range:1..1023		
 */
 uint16_t confirm_off_time;
+/*
+  idle time after which the light is turned off, value in ticks
+  range:1..2^32-1
+*/
+uint32_t idle_time = 60*60*1000;
+
 
 
 /* ===== signals/variables ===== */
@@ -72,7 +78,7 @@ uint8_t state = STATE_LIGHT_OFF;
 
 
 uint16_t cnt;
-uint16_t lcnt;
+uint32_t lcnt;
 int16_t adc_rb_mem[ADC_RING_BUFFER_SIZE];
 uint8_t adc_rb_pos = 0;
 
@@ -220,14 +226,59 @@ void state_machine(void)
       }
       break;
     case STATE_INCREMENT_LIGHT:
-      if ( lt >= pot )
+      if ( nd != 0 )
+      {
+	lt = pot;
+	cnt_zero();
+	lcnt_zero();
+	state = STATE_LIGHT_ON_NOISE;
+      }
+      else if ( lt >= pot )
       {
 	lcnt_zero();
+	state = STATE_LIGHT_ON;
       }
+      lt++;
       break;
     case STATE_LIGHT_ON:
+      if ( pm != 0 )
+      {
+	/* stay in this state */
+	lt = pot;
+      }
+      else if ( lcnt >= idle_time )
+      {
+	state = STATE_DECREMENT_LIGHT
+      }
+      else if ( nd == 1 )
+      {
+	cnt_zero();
+	state = STATE_LIGHT_ON_NOISE;
+      }
+      else
+      {
+	lt = pot;
+      }
       break;
     case STATE_LIGHT_ON_NOISE:
+      if ( pm == 1 )
+      {
+	/* lt = pot; */ /* done below */
+	state = STATE_LIGHT_ON;
+      }
+      else if ( nd == 0 && cnt < noise_min_time )
+      {
+	state = STATE_LIGHT_ON;
+      }
+      else if ( nd == 0 && noise_min_time <= cnt && cnt <= noise_max_time )
+      {
+	state = STATE_DECREMENT_LIGHT;
+      }
+      else if ( /* nd == 1 && */ cnt > noise_max_time )
+      {
+	state = STATE_LIGHT_ON_WAIT;	
+      }
+      lt = pot;
       break;
     case STATE_LIGHT_ON_WAIT:
       break;
@@ -238,5 +289,6 @@ void state_machine(void)
       break;
   }
   cnt_inc();
+  lcnt_inc();
 
 }
