@@ -185,6 +185,7 @@ void state_machine(void)
 	state = STATE_LIGHT_OFF_NOISE;
       }
       break;
+      
     case STATE_LIGHT_OFF_NOISE:
       if ( pm != 0 )
       {
@@ -204,6 +205,7 @@ void state_machine(void)
 	state = STATE_LIGHT_OFF_WAIT;	
       }
       break;
+      
     case STATE_LIGHT_OFF_WAIT:
       if ( pm != 0 )
       {
@@ -214,6 +216,7 @@ void state_machine(void)
 	state = STATE_LIGHT_OFF;
       }
       break;
+      
     case STATE_LIGHT_OFF_FLASH:
       if ( pm != 0 )
       {
@@ -225,6 +228,7 @@ void state_machine(void)
 	state = STATE_INCREMENT_LIGHT;	
       }
       break;
+      
     case STATE_INCREMENT_LIGHT:
       if ( nd != 0 )
       {
@@ -240,6 +244,7 @@ void state_machine(void)
       }
       lt++;
       break;
+      
     case STATE_LIGHT_ON:
       if ( pm != 0 )
       {
@@ -260,6 +265,7 @@ void state_machine(void)
 	lt = pot;
       }
       break;
+      
     case STATE_LIGHT_ON_NOISE:
       if ( pm == 1 )
       {
@@ -280,10 +286,35 @@ void state_machine(void)
       }
       lt = pot;
       break;
+      
     case STATE_LIGHT_ON_WAIT:
+      if ( pm != 0 )
+      {
+	/* stay here and copy pot value (see below), wait until noise goes away */
+      }
+      /* else */ /* no else in this case, always leave this state if noise is away */
+      if ( nd == 0 )
+      {
+	state = STATE_LIGHT_ON;
+      }
+      lt = pot;
       break;
+      
     case STATE_DECREMENT_LIGHT:
+      if ( pm != 0 )
+      {
+	state = STATE_INCREMENT_LIGHT;
+      }
+      else if ( lt == 0 )
+      {
+	state = STATE_LIGHT_OFF;
+      }
+      else
+      {
+	lt--;
+      }
       break;
+      
     default:
       state = STATE_LIGHT_OFF;
       break;
