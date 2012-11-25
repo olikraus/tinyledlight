@@ -73,17 +73,15 @@ void delay_milli_seconds(uint8_t x)
 
 /*=======================================================================*/
 /* ADC */
+
+#define ADC_PRESCALAR 0x07
+
 void setup_adc(void)
 {
-  // version 2: ADC changed to pin 7, PB2, ADC1 (v1 has used PB2/ADC2)  
-  // DDRB &= ~_BV(4);              // v1: use PB4/ADC2 as input pin for the ADC
-  DDRB &= ~_BV(2);              // v2: use PB2/ADC1 as input pin for the ADC
-  PORTB &= ~_BV(2);		// switch off pull-up
-  ADMUX = 1;	                        // Vcc as reference, ADC 1 (v1 has used ADMUX = 2 with ADC 2)
-  ADCSRB = 0x0;                         // default operation
 }
 
-uint16_t get_adc(void)
+#ifdef OLD_CODE
+uint16_t get_variable_pot_adc(void)
 {
   uint16_t  l, h;
   
@@ -96,6 +94,99 @@ uint16_t get_adc(void)
   h = ADCH;
   return (h<<8) | l ;
 }
+#endif 
+
+
+/*
+  measure voltage difference between ADC3 (positive, PORT B/Pin 4) and ADC2 (negative, PORT B/Pin 3)
+  gain_bit == 0: 1x
+  gain_bit == 1: 20x
+*/
+int16_t get_audio_adc(uint8_t gain_bit)
+{
+  uint16_t l, h, val;
+  uint8_t sign;
+  int16_t sval;
+  
+  /* datasheet recomends to turn off ADC for differntial measurement first */
+  ADCSRA = 0x00 | ADC_PRESCALAR;		/* turn off ADC */  
+
+  /* use PB3 and PB4 as input  */
+  DDRB &= ~_BV(3);
+  DDRB &= ~_BV(4);
+
+  /* enable, but do not start ADC (ADEN, Bit 7) */
+  /* clear the interrupt indicator flag (ADIF, Bit 4) */
+  ADCSRA = 0x90 | ADC_PRESCALAR;
+  
+  ADMUX = 6 | gain_bit;
+  /* enable bipolar mode, voltage diff may be higher or lower, result is signed */
+  ADCSRB = 0x080;
+  /* enable and start conversion  */
+  ADCSRA = 0xc0|ADC_PRESCALAR;
+  /* wait for conversion to be finished (ADIF, Bit 4) */
+  while ( (ADCSRA & _BV(4)) == 0 )
+    ;
+  /* return 8 bit result */
+  l = ADCL;
+  h = ADCH;
+  
+  /* save some power */
+  ADCSRA = 0x00 | ADC_PRESCALAR;		/* turn off ADC */  
+  
+  sign = 0;
+  val = (h<<8) | l ;
+  if ( val >= 512 )
+  {
+    sign = 1;
+    val = 1024-val ;
+  }
+  
+  sval = val;
+  if ( sign != 0 )
+    sval = -sval;
+  
+  
+  return sval;  
+}
+
+
+/* variable potentiometer ADC read */
+uint16_t get_variable_pot_adc(void)
+{
+  uint16_t l, h;
+
+  /* turn off ADC to force long conversion */
+  ADCSRA = 0x00 | ADC_PRESCALAR;		/* turn off ADC */  
+
+  /* use PB2/ADC1 as input pin for the ADC */
+  DDRB &= ~_BV(2);              // use PB2/ADC1 as input pin for the ADC
+  PORTB &= ~_BV(2);		// switch off pull-up
+  
+  /* enable, but do not start ADC (ADEN, Bit 7) */
+  /* clear the interrupt indicator flag (ADIF, Bit 4) */
+  ADCSRA = 0x90 | ADC_PRESCALAR;
+  
+  /*  Vcc as reference, ADC 1 */
+  ADMUX = 1;	
+  /* default operation */
+  ADCSRB = 0x0;
+  /* enable and start conversion, maximum prescalar */
+  ADCSRA = 0xc0|ADC_PRESCALAR;
+  /* wait for conversion to be finished (ADIF, Bit 4) */
+  while ( (ADCSRA & _BV(4)) == 0 )
+    ;
+  /* return 8 bit result */
+  
+  l = ADCL;
+  h = ADCH;
+
+  /* save some power */
+  ADCSRA = 0x00 | ADC_PRESCALAR;		/* turn off ADC */  
+  
+  return (h<<8) | l ;
+}
+
 
 /*=======================================================================*/
 /* low pass filter with 5 bit resolution, p = 0..31 */
@@ -213,11 +304,12 @@ void detect_idle_timeout(void)
 /* 2ms task: timer 0 overflow, with 500 Hz */
 
 uint8_t pin_state = 0;
+uint8_t div2 = 0;
 
 ISR(TIMER0_OVF_vect)
 {
-  TCNT0 = 255-125;			/* restart at 130 count up to 255 --> 1000 Hz */
-  DDRB |= _BV(3);
+  TCNT0 = 255-124;			/* restart at 130 count up to 255 --> 1000 Hz */
+  DDRB |= _BV(0);
   //DDRB |= _BV(0);
 
   // PORTB |= _BV(0);
@@ -228,20 +320,33 @@ ISR(TIMER0_OVF_vect)
     pin_state = 0;    
   
   if ( pin_state == 0 )
-    PORTB &= ~_BV(3);
+    PORTB &= ~_BV(0);
   else
-    PORTB |= _BV(3);
+    PORTB |= _BV(0);
   
-  setup_timer1_one_shot();      
-  
-    raw_adc_value = get_adc();
-  //raw_adc_value = 512;
-    adc_value = low_pass(&adc_z, raw_adc_value, 3);
-    //    adc_value = raw_adc_value;
-    detect_idle_timeout();
-    calculate_factor_and_len_2();
+  if ( div2 == 0 )
+  {
+    div2++;
+  }
+  else
+  {
+    div2 = 0;
+    setup_timer1_one_shot();      
+    
+      raw_adc_value = get_variable_pot_adc();
+      raw_adc_value = (get_audio_adc(1)+512);
+      //if ( raw_adc_value <= 512 )
+      //  raw_adc_value = 512 - raw_adc_value;
+      //else
+       // raw_adc_value = raw_adc_value - 512;
+    //raw_adc_value = 512;
+      adc_value = low_pass(&adc_z, raw_adc_value, 3);
+      //adc_value = raw_adc_value;
+      detect_idle_timeout();
+      calculate_factor_and_len_2();
   
   // PORTB &= ~_BV(0);
+  }
 }
 
 

@@ -67,44 +67,20 @@ uint32_t idle_time = 60*60*1000;
 
 
 /* ===== signals/variables ===== */
-int16_t adc_differential_value;
-int16_t adc_amplitude;
+int16_t adc_diff_val;
 uint8_t nd; /* 1, if adc_amplitude is above noise_intensity */
 uint8_t lt;		/* current light value */
 uint8_t pm;	/* 0: no var pot movement, 1: var pot has changed, auto reset to 0 by state machine */
 uint8_t pot;	/* var potentiometer position */
-uint8_t state = STATE_LIGHT_OFF;
 
 
 
 
-uint16_t cnt;
-uint32_t lcnt;
+/* ===== detect_noise ===== */
+
 int16_t adc_rb_mem[ADC_RING_BUFFER_SIZE];
 uint8_t adc_rb_pos = 0;
-
-
-/* ===== helper procedures ===== */
-
-void cnt_zero(void)
-{
-  cnt = 0;
-}
-
-void cnt_inc(void)
-{
-  cnt++;
-}
-
-void lcnt_zero(void)
-{
-  lcnt = 0;
-}
-
-void lcnt_inc(void)
-{
-  lcnt++;
-}
+int16_t adc_amplitude;
 
 
 void adc_rb_init(void)
@@ -151,16 +127,20 @@ int16_t adc_rb_get_min(void)
   return m;
 }
 
-/* ===== signal processing ===== */
-
 /*
-  input: adc_differential_value
-  output: nd
+  Input: 
+    adc_diff_val
+  Out: 
+    nd	noise detection flag
+  Internal Variables
+    adc_amplitude
+  Configuration Variables:
+    noise_intensity
 */
 void detect_noise(void)
 {
-  /* read signal adc_differential_value and put it into the ring buffer */
-  adc_rb_add(adc_differential_value);
+  /* read signal adc_diff_val and put it into the ring buffer */
+  adc_rb_add(adc_diff_val);
   
   /* calculate peak to peak distance for the adc values in the ring buffer */
   adc_amplitude = adc_rb_get_max() - adc_rb_get_min();
@@ -172,7 +152,51 @@ void detect_noise(void)
 }
 
 
+/* ===== state_machine ===== */
 
+uint8_t state = STATE_LIGHT_OFF;
+uint16_t cnt = 0;
+uint32_t lcnt = 0;
+
+
+void cnt_zero(void)
+{
+  cnt = 0;
+}
+
+void cnt_inc(void)
+{
+  cnt++;
+}
+
+void lcnt_zero(void)
+{
+  lcnt = 0;
+}
+
+void lcnt_inc(void)
+{
+  lcnt++;
+}
+
+
+/*
+  In: 
+    pot	variable pot value (0,,255)
+    pm	variable pot moved
+    nd	noise detection flag
+  Out:
+    lt		light value (0,,255)
+  Internal Variables
+    state
+    cnt
+    lcnt
+  Configuration Variables:
+    noise_min_time
+    noise_max_time
+    confirm_on_flash_lt
+    confirm_on_flash_time
+*/
 void state_machine(void)
 {
   switch(state)
@@ -250,7 +274,10 @@ void state_machine(void)
 	lcnt_zero();
 	state = STATE_LIGHT_ON;
       }
-      lt++;
+      else
+      {
+	lt++;
+      }
       break;
       
     case STATE_LIGHT_ON:
