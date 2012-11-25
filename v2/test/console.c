@@ -47,17 +47,17 @@ uint16_t confirm_on_flash_time = 300;
   number of ticks to wait after flash on confirm time, one tick is 1ms, should be about 100
   range: 1...999
 */
-uint16_t confirm_on_delay_time = 100;
+/* uint16_t confirm_on_delay_time = 100; */
 /*
   initial pwm value for confirm off, 500
   range: 1...1023	
 */
-uint16_t confirm_off_initial_pwm;
+/*uint16_t confirm_off_initial_pwm; */
 /*
   number of ticks for confirmation off, initial_pwm is decreased by 1 for each tick, 500
   range:1..1023		
 */
-uint16_t confirm_off_time;
+/* uint16_t confirm_off_time; */
 /*
   idle time after which the light is turned off, value in ticks
   range:1..2^32-1
@@ -71,6 +71,7 @@ int16_t adc_differential_value;
 int16_t adc_amplitude;
 uint8_t nd; /* 1, if adc_amplitude is above noise_intensity */
 uint8_t lt;		/* current light value */
+uint8_t pm;	/* 0: no var pot movement, 1: var pot has changed */
 uint8_t pot;	/* var potentiometer position */
 uint8_t state = STATE_LIGHT_OFF;
 
@@ -126,6 +127,7 @@ void adc_rb_add(int16_t val)
 
 int16_t adc_rb_get_max(void)
 {
+  uint8_t i;
   int16_t m;
   m = adc_rb_mem[0];
   for( i = 1; i < ADC_RING_BUFFER_SIZE; i++ )
@@ -138,6 +140,7 @@ int16_t adc_rb_get_max(void)
 
 int16_t adc_rb_get_min(void)
 {
+  uint8_t i;
   int16_t m;
   m = adc_rb_mem[0];
   for( i = 1; i < ADC_RING_BUFFER_SIZE; i++ )
@@ -253,7 +256,7 @@ void state_machine(void)
       }
       else if ( lcnt >= idle_time )
       {
-	state = STATE_DECREMENT_LIGHT
+	state = STATE_DECREMENT_LIGHT;
       }
       else if ( nd == 1 )
       {
@@ -321,5 +324,136 @@ void state_machine(void)
   }
   cnt_inc();
   lcnt_inc();
-
 }
+
+/* ===== unix console ===== */
+
+#ifdef __unix
+#endif
+
+#include <stdio.h>
+#include <stdlib.h>
+
+const char *get_state(void)
+{
+  switch(state)
+  {
+    case STATE_LIGHT_OFF: return "LIGHT_OFF";
+    case STATE_LIGHT_OFF_NOISE: return "LIGHT_OFF_NOISE";    
+    case STATE_LIGHT_OFF_WAIT: return "LIGHT_OFF_WAIT";
+    case STATE_LIGHT_OFF_FLASH: return "LIGHT_OFF_FLASH"; 
+    case STATE_INCREMENT_LIGHT: return "INCREMENT_LIGHT";
+    case STATE_LIGHT_ON: return "LIGHT_ON";
+    case STATE_LIGHT_ON_NOISE: return "LIGHT_ON_NOISE";
+    case STATE_LIGHT_ON_WAIT: return "LIGHT_ON_WAIT";
+    case STATE_DECREMENT_LIGHT: return "DECREMENT_LIGHT";
+  }
+  return "<UNKNOWN>";
+}
+
+void show_variables(void)
+{
+  printf("nd:%d pm:%d pot:%03d    cnt:%03d   lt:%03d    state:%s\n", nd, pm, pot, cnt, lt, get_state());
+}
+
+void show_config(void)
+{
+  printf("noise_min_time=%d\n",noise_min_time);
+  printf("noise_max_time=%d\n",noise_max_time);
+  printf("confirm_on_flash_lt=%d\n", confirm_on_flash_lt);
+  printf("confirm_on_flash_time=%d", confirm_on_flash_time);
+  puts("");
+}
+
+void space(const char **s)
+{
+  for(;;)
+  {
+    if ( **s == '\0' )
+      return;
+    if ( **s > 32 )
+      return;
+    (*s)++;
+  }
+}
+
+int get_int(const char **s) 
+{
+  int x = 0;
+  for(;;)
+  {
+    if ( **s < '0' || **s > '9' )
+      break;
+    x = x*10 + (((int)**s) - '0' );
+    (*s)++;    
+  }
+  return x;
+}
+
+
+void exec(void)
+{
+  static char buf[1024];
+  int arg;
+  uint8_t old_state;
+  const char *ptr = buf;
+  uint8_t cmd;
+  printf("> ");
+  gets(buf);
+  cmd = *ptr++;
+  switch(cmd)
+  {
+    case 'h':
+      puts("h: Help");
+      puts("q: Quit");
+      puts("c: show Config");
+      puts("s <num>: do <num> steps, stop on state change");
+      puts("n <num>: set Noise detect flag, <num> is 0 or 1");
+      puts("p <num>: set Potentiometer value and pm to 1");
+      puts("<return>: Execute state machine once");
+      break;
+    case 'q':
+      exit(0);
+      break;
+    case 'c':
+      show_config();
+      break;
+    case 's':
+      space(&ptr);
+      arg = get_int(&ptr);
+      old_state = state;
+      while( arg > 0 && old_state == state)
+      {
+	state_machine();
+	pm = 0;
+      }
+      break;
+    case 'n':
+      space(&ptr);
+      arg = get_int(&ptr);
+      nd = arg;
+      break;
+    case 'p':
+      space(&ptr);
+      arg = get_int(&ptr);
+      pot = arg;
+      pm = 1;
+      break;
+    case '\0':
+      state_machine();
+      pm = 0;
+      break;
+  }
+}
+
+int main(void)
+{
+  for(;;)
+  {
+    show_variables();
+    exec();
+    
+  }
+  return 0;
+}
+
