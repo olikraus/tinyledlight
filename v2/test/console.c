@@ -71,7 +71,7 @@ int16_t adc_differential_value;
 int16_t adc_amplitude;
 uint8_t nd; /* 1, if adc_amplitude is above noise_intensity */
 uint8_t lt;		/* current light value */
-uint8_t pm;	/* 0: no var pot movement, 1: var pot has changed */
+uint8_t pm;	/* 0: no var pot movement, 1: var pot has changed, auto reset to 0 by state machine */
 uint8_t pot;	/* var potentiometer position */
 uint8_t state = STATE_LIGHT_OFF;
 
@@ -233,7 +233,12 @@ void state_machine(void)
       break;
       
     case STATE_INCREMENT_LIGHT:
-      if ( nd != 0 )
+      if ( pot == 0 )
+      {
+	lt = 0;
+	state = STATE_LIGHT_OFF;
+      }
+      else if ( nd != 0 )
       {
 	lt = pot;
 	cnt_zero();
@@ -322,8 +327,10 @@ void state_machine(void)
       state = STATE_LIGHT_OFF;
       break;
   }
+    
   cnt_inc();
   lcnt_inc();
+  pm = 0;		/* reset var pot moved flag */
 }
 
 /* ===== unix console ===== */
