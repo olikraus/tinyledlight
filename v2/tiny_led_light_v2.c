@@ -56,6 +56,87 @@ uint8_t is_idle = 0;
 /* shutdown mosfet after 1h */
 #define IDLE_MODE_MINUTES 60L
 
+
+
+
+#define ADC_RING_BUFFER_SIZE 6
+
+#define STATE_LIGHT_OFF 0
+#define STATE_LIGHT_OFF_NOISE 1
+#define STATE_LIGHT_OFF_WAIT 2
+#define STATE_LIGHT_OFF_FLASH 3
+#define STATE_INCREMENT_LIGHT 4
+#define STATE_LIGHT_ON 5
+#define STATE_LIGHT_ON_NOISE 6
+#define STATE_LIGHT_ON_WAIT 7
+#define STATE_DECREMENT_LIGHT 8
+
+
+/* ===== calibration variables ===== */
+
+/* 
+  threshold: amplitude above this will be detected as clap sound
+  range: 0..2048 
+*/
+int16_t noise_intensity = 300;
+
+/*
+  maximum number of ticks for the clap noise. one tick is 1ms, clap noise is usually not longer than 20ms, noise_min_time < noise_max_time 
+  range: 9..99
+*/
+uint16_t noise_max_time = 20;
+/*
+  minimum number of ticks for the clap noise. one tick is 1ms, clap noise is usually longer than 3ms, noise_min_time < noise_max_time
+  range: 9..99
+*/
+uint16_t noise_min_time = 7;	 
+/*
+  confirmation light intensity 
+  range: 1...255
+*/
+uint16_t confirm_on_flash_lt = 255;
+/*
+  number of ticks for flash on confirmation time, one tick is 1ms, should be 300 
+  range: 1...999
+*/
+uint16_t confirm_on_flash_time = 300;
+/*
+  number of ticks to wait after flash on confirm time, one tick is 1ms, should be about 100
+  range: 1...999
+*/
+/* uint16_t confirm_on_delay_time = 100; */
+/*
+  initial pwm value for confirm off, 500
+  range: 1...1023	
+*/
+/*uint16_t confirm_off_initial_pwm; */
+/*
+  number of ticks for confirmation off, initial_pwm is decreased by 1 for each tick, 500
+  range:1..1023		
+*/
+/* uint16_t confirm_off_time; */
+/*
+  idle time after which the light is turned off, value in ticks
+  range:1..2^32-1
+*/
+uint32_t idle_time = 60UL*60UL*1000UL;
+/*
+  increment/decrement value for lt
+  range:1..16, default is 4, should be power of 2
+*/
+uint16_t lt_step = 4;	
+
+
+/* ===== signals/variables ===== */
+int16_t adc_diff_val;
+uint8_t nd; /* 1, if adc_amplitude is above noise_intensity */
+uint8_t pm;	/* 0: no var pot movement, 1: var pot has changed, auto reset to 0 by state machine */
+uint16_t lt;		/* current light value 10 bit */
+uint16_t pot;	/* var potentiometer position 10 bit*/
+uint16_t pot_old_value;	/* var potentiometer position 10 bit*/
+
+
+
 /*=======================================================================*/
 
 void setup_system_clock(void)
@@ -79,23 +160,6 @@ void delay_milli_seconds(uint8_t x)
 void setup_adc(void)
 {
 }
-
-#ifdef OLD_CODE
-uint16_t get_variable_pot_adc(void)
-{
-  uint16_t  l, h;
-  
-  ADCSRA = 0xc4;
-  /* wait for conversion to be finished */
-  while ( ADCSRA == 0xc4 )
-    ;
-  /* return result */
-  l = ADCL;
-  h = ADCH;
-  return (h<<8) | l ;
-}
-#endif 
-
 
 /*
   measure voltage difference between ADC3 (positive, PORT B/Pin 4) and ADC2 (negative, PORT B/Pin 3)
@@ -200,9 +264,300 @@ uint16_t low_pass(uint16_t *a, uint16_t x, uint8_t p)
 }
 
 
+
+
+/* ===== detect_noise ===== */
+
+int16_t adc_rb_mem[ADC_RING_BUFFER_SIZE];
+uint8_t adc_rb_pos = 0;
+int16_t adc_amplitude;
+
+
+void adc_rb_init(void)
+{
+  uint8_t i;
+  adc_rb_pos = 0;
+  for( i = 0; i < ADC_RING_BUFFER_SIZE; i++ )
+  {
+    adc_rb_mem[i] = 0;
+  }
+}
+
+void adc_rb_add(int16_t val)
+{
+  adc_rb_mem[adc_rb_pos] = val;
+  adc_rb_pos++;
+  if ( adc_rb_pos > ADC_RING_BUFFER_SIZE )
+    adc_rb_pos = 0;
+}
+
+int16_t adc_rb_get_max(void)
+{
+  uint8_t i;
+  int16_t m;
+  m = adc_rb_mem[0];
+  for( i = 1; i < ADC_RING_BUFFER_SIZE; i++ )
+  {
+    if ( m < adc_rb_mem[i] )
+      m = adc_rb_mem[i];
+  }
+  return m;
+}
+
+int16_t adc_rb_get_min(void)
+{
+  uint8_t i;
+  int16_t m;
+  m = adc_rb_mem[0];
+  for( i = 1; i < ADC_RING_BUFFER_SIZE; i++ )
+  {
+    if ( m > adc_rb_mem[i] )
+      m = adc_rb_mem[i];
+  }
+  return m;
+}
+
+/*
+  Input: 
+    adc_diff_val
+  Out: 
+    nd	noise detection flag
+  Internal Variables
+    adc_amplitude
+  Configuration Variables:
+    noise_intensity
+*/
+void detect_noise(void)
+{
+  /* read signal adc_diff_val and put it into the ring buffer */
+  adc_rb_add(adc_diff_val);
+  
+  /* calculate peak to peak distance for the adc values in the ring buffer */
+  adc_amplitude = adc_rb_get_max() - adc_rb_get_min();
+  
+  /* check if we have a noise detected */
+  nd = 0;
+  if ( adc_amplitude > noise_intensity )
+    nd = 1;
+}
+
+
+/* ===== state_machine ===== */
+
+uint8_t state = STATE_LIGHT_OFF;
+uint16_t cnt = 0;
+uint32_t lcnt = 0;
+
+
+void cnt_zero(void)
+{
+  cnt = 0;
+}
+
+void cnt_inc(void)
+{
+  cnt++;
+}
+
+void lcnt_zero(void)
+{
+  lcnt = 0;
+}
+
+void lcnt_inc(void)
+{
+  lcnt++;
+}
+
+
+/*
+  In: 
+    pot	variable pot value (0..1023)
+    pm	variable pot moved
+    nd	noise detection flag
+  Out:
+    lt		light value (0..1023)
+  Internal Variables
+    state
+    cnt
+    lcnt
+  Configuration Variables:
+    noise_min_time
+    noise_max_time
+    confirm_on_flash_lt
+    confirm_on_flash_time
+*/
+void state_machine(void)
+{
+  switch(state)
+  {
+    case STATE_LIGHT_OFF:
+      if ( pm != 0 )
+      {
+	state = STATE_INCREMENT_LIGHT;
+      }
+      else if ( nd != 0 )
+      {
+	cnt_zero();
+	state = STATE_LIGHT_OFF_NOISE;
+      }
+      break;
+      
+    case STATE_LIGHT_OFF_NOISE:
+      if ( pm != 0 )
+      {
+	state = STATE_INCREMENT_LIGHT;
+      }
+      else if ( nd == 0 && cnt < noise_min_time )
+      {
+	state = STATE_LIGHT_OFF;
+      }
+      else if ( nd == 0 && noise_min_time <= cnt && cnt <= noise_max_time )
+      {
+	lt = confirm_on_flash_lt;
+	state = STATE_LIGHT_OFF_FLASH;
+      }
+      else if ( /* nd == 1 && */ cnt > noise_max_time )
+      {
+	state = STATE_LIGHT_OFF_WAIT;	
+      }
+      break;
+      
+    case STATE_LIGHT_OFF_WAIT:
+      if ( pm != 0 )
+      {
+	state = STATE_INCREMENT_LIGHT;
+      }
+      else if ( nd == 0 )
+      {
+	state = STATE_LIGHT_OFF;
+      }
+      break;
+      
+    case STATE_LIGHT_OFF_FLASH:
+      if ( pm != 0 )
+      {
+	state = STATE_INCREMENT_LIGHT;
+      }
+      else if ( cnt >= confirm_on_flash_time )
+      {
+	lt = 0;
+	state = STATE_INCREMENT_LIGHT;	
+      }
+      break;
+      
+    case STATE_INCREMENT_LIGHT:
+      if ( pot == 0 )
+      {
+	lt = 0;
+	state = STATE_LIGHT_OFF;
+      }
+      else if ( nd != 0 )
+      {
+	lt = pot;
+	cnt_zero();
+	lcnt_zero();
+	state = STATE_LIGHT_ON_NOISE;
+      }
+      else if ( lt >= pot )
+      {
+	lt = pot;
+	lcnt_zero();
+	state = STATE_LIGHT_ON;
+      }
+      else
+      {
+	lt+=lt_step;
+      }
+      break;
+      
+    case STATE_LIGHT_ON:
+      if ( pm != 0 )
+      {
+	/* stay in this state */
+	lt = pot;
+      }
+      else if ( lcnt >= idle_time )
+      {
+	state = STATE_DECREMENT_LIGHT;
+      }
+      else if ( nd == 1 )
+      {
+	cnt_zero();
+	state = STATE_LIGHT_ON_NOISE;
+      }
+      else
+      {
+	lt = pot;
+      }
+      break;
+      
+    case STATE_LIGHT_ON_NOISE:
+      if ( pm == 1 )
+      {
+	/* lt = pot; */ /* done below */
+	state = STATE_LIGHT_ON;
+      }
+      else if ( nd == 0 && cnt < noise_min_time )
+      {
+	state = STATE_LIGHT_ON;
+      }
+      else if ( nd == 0 && noise_min_time <= cnt && cnt <= noise_max_time )
+      {
+	state = STATE_DECREMENT_LIGHT;
+      }
+      else if ( /* nd == 1 && */ cnt > noise_max_time )
+      {
+	state = STATE_LIGHT_ON_WAIT;	
+      }
+      lt = pot;
+      break;
+      
+    case STATE_LIGHT_ON_WAIT:
+      if ( pm != 0 )
+      {
+	/* stay here and copy pot value (see below), wait until noise goes away */
+      }
+      /* else */ /* no else in this case, always leave this state if noise is away */
+      if ( nd == 0 )
+      {
+	state = STATE_LIGHT_ON;
+      }
+      lt = pot;
+      break;
+      
+    case STATE_DECREMENT_LIGHT:
+      if ( pm != 0 )
+      {
+	state = STATE_INCREMENT_LIGHT;
+      }
+      else if ( lt == 0 )
+      {
+	state = STATE_LIGHT_OFF;
+      }
+      else
+      {
+	if ( lt > lt_step )
+	  lt -= lt_step;
+	else
+	  lt = 0;
+      }
+      break;
+      
+    default:
+      state = STATE_LIGHT_OFF;
+      break;
+  }
+    
+  cnt_inc();
+  lcnt_inc();
+  pm = 0;		/* reset var pot moved flag */
+}
+
+
 /*=======================================================================*/
 /*
-  input: adc_value (10 bit)
+  input: lt (10 bit)
   output: factor, duty
 
   duty = 0...255  
@@ -220,8 +575,8 @@ void calculate_factor_and_len_2(void)
 {
   uint32_t t;
   uint16_t y; 
-  t = adc_value;
-  t *= adc_value;
+  t = lt;
+  t *= lt;
   y = t >> 6;
   
   if ( y < 256 )
@@ -254,6 +609,12 @@ void calculate_factor_and_len_2(void)
 /*=======================================================================*/
 /* activate MOSFET for some time */
 
+/*
+  Input:
+    is_idle:	0: normal operation, 1: disable all
+    duty
+    factor
+*/
 void setup_timer1_one_shot(void)
 {
   DDRB |= 0x002;        // set OC1A (PB1) as output
@@ -261,18 +622,21 @@ void setup_timer1_one_shot(void)
   
   if ( duty == 0 || is_idle != 0 )
   {
-    TCCR1 = 0x030;        // stop timer 2, set OC1A to logic one (MOSFET disabled) with the next command
-    GTCCR |= _BV(2);        // OCR1B is not used, force OC1A (to logic one because of the previous command)
+    // TCCR1 = 0x030;        // V1: stop timer 2, set OC1A to logic one (MOSFET disabled) with the next command
+    TCCR1 = 0x020;        // V2: stop timer 2, set OC1A to logic zero (MOSFET disabled) with the next command
+    GTCCR |= _BV(2);        // OCR1B is not used, force OC1A (to samle logic level as before)
     
   }
   else
   {
-    TCCR1 = 0x020;        // stop timer 2, set OC1A to logic zero (MOSFET enable) with the next command
-    GTCCR |= _BV(2);        // OCR1B is not used, force OC1A (to logic one because of the previous command)
+    //TCCR1 = 0x020;        // stop timer 2, set OC1A to logic zero (MOSFET enable) with the next command
+    TCCR1 = 0x030;        // V2: stop timer 2, set OC1A to logic one (MOSFET enable) with the next command
+    GTCCR |= _BV(2);        // OCR1B is not used, force OC1A (to samle logic level as before)
   
     TCNT1 = 0;               // counter value
     OCR1A = duty;
-    TCCR1 = 0x037 - factor;        // clear OC1A after timeout  
+    //TCCR1 = 0x037 - factor;        // V1: clear OC1A after timeout  
+    TCCR1 = 0x027 - factor;        // V2: set OC1A after timeout  
   }
 }
 
@@ -300,8 +664,48 @@ void detect_idle_timeout(void)
   }
 }
 
+
+void task_1ms(void)
+{
+  adc_diff_val = get_audio_adc(1);
+ 
+  /* in: adc_diff_val */
+  /* out: nd */
+  detect_noise();
+  
+  /* in: pot, pm, nd */
+  /* out: lt */
+  state_machine();
+  
+  /*
+  if ( nd == 0 )
+    lt = 0;
+  else
+    */
+  // lt = 0;
+  
+  
+  /* in: lt */
+  /* out: duty, factor */
+  calculate_factor_and_len_2();
+}
+
+void task_2ms(void)
+{
+  /* in: duty, facter */
+  /* out: - */
+  setup_timer1_one_shot();      
+  
+  raw_adc_value = get_variable_pot_adc();  
+  pot = low_pass(&adc_z, raw_adc_value, 3);
+  if ( pot_old_value != pot )
+    pm = 1;
+  pot_old_value = pot;
+
+}
+
 /*=======================================================================*/
-/* 2ms task: timer 0 overflow, with 500 Hz */
+/* 1ms task: timer 0 overflow, with 500 Hz */
 
 uint8_t pin_state = 0;
 uint8_t div2 = 0;
@@ -323,7 +727,7 @@ ISR(TIMER0_OVF_vect)
     PORTB &= ~_BV(0);
   else
     PORTB |= _BV(0);
-  
+
   if ( div2 == 0 )
   {
     div2++;
@@ -331,22 +735,11 @@ ISR(TIMER0_OVF_vect)
   else
   {
     div2 = 0;
-    setup_timer1_one_shot();      
-    
-      raw_adc_value = get_variable_pot_adc();
-      raw_adc_value = (get_audio_adc(1)+512);
-      //if ( raw_adc_value <= 512 )
-      //  raw_adc_value = 512 - raw_adc_value;
-      //else
-       // raw_adc_value = raw_adc_value - 512;
-    //raw_adc_value = 512;
-      adc_value = low_pass(&adc_z, raw_adc_value, 3);
-      //adc_value = raw_adc_value;
-      detect_idle_timeout();
-      calculate_factor_and_len_2();
-  
-  // PORTB &= ~_BV(0);
+    task_2ms();
   }
+  
+  task_1ms();
+  
 }
 
 

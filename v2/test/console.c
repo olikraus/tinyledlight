@@ -64,14 +64,19 @@ uint16_t confirm_on_flash_time = 300;
 */
 uint32_t idle_time = 60*60*1000;
 
+/*
+  increment/decrement value for lt
+  range:1..16, default is 4, should be power of 2
+*/
+uint16_t lt_step = 4;	
 
 
 /* ===== signals/variables ===== */
 int16_t adc_diff_val;
 uint8_t nd; /* 1, if adc_amplitude is above noise_intensity */
-uint8_t lt;		/* current light value */
 uint8_t pm;	/* 0: no var pot movement, 1: var pot has changed, auto reset to 0 by state machine */
-uint8_t pot;	/* var potentiometer position */
+uint16_t lt;		/* current light value 10 bit */
+uint16_t pot;	/* var potentiometer position 10 bit*/
 
 
 
@@ -271,12 +276,13 @@ void state_machine(void)
       }
       else if ( lt >= pot )
       {
+	lt = pot;
 	lcnt_zero();
 	state = STATE_LIGHT_ON;
       }
       else
       {
-	lt++;
+	lt+=lt_step;
       }
       break;
       
@@ -346,7 +352,10 @@ void state_machine(void)
       }
       else
       {
-	lt--;
+	if ( lt > lt_step )
+	  lt -= lt_step;
+	else
+	  lt = 0;
       }
       break;
       
