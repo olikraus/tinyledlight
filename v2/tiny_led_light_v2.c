@@ -33,6 +33,10 @@
   - clap control 
   - 1000 Hz Interrupt
   
+  Usage
+    Light is switched on by clap noise, small flash feedback by light
+    Light is switched off by very loud clap noise or by reaching idle time (default 1h)
+    Variable resistor will always put light to the desired level
   
 */
 
@@ -59,7 +63,7 @@ uint8_t is_idle = 0;
 
 
 
-#define ADC_RING_BUFFER_SIZE 6
+#define ADC_RING_BUFFER_SIZE 10
 
 #define STATE_LIGHT_OFF 0
 #define STATE_LIGHT_OFF_NOISE 1
@@ -74,52 +78,53 @@ uint8_t is_idle = 0;
 
 /* ===== calibration variables ===== */
 
+/*
+  disallow switch off light by noise
+  range: 0, 1
+*/
+uint8_t is_light_off_with_noise = 1;
+
 /* 
   threshold: amplitude above this will be detected as clap sound
   range: 0..2048 
+  
+  < 200 very easy to clap, large distance
+  > 500 near distance, loud noise required
+  
+  
+  light_on_noise_intensity		value to switch on the light
+  light_off_noise_intensity		value to switch off the light
 */
-int16_t noise_intensity = 300;
+int16_t light_on_noise_intensity = 150;
+int16_t light_off_noise_intensity = 900;
 
 /*
   maximum number of ticks for the clap noise. one tick is 1ms, clap noise is usually not longer than 20ms, noise_min_time < noise_max_time 
-  range: 9..99
+  This value MUST be larger than ADC_RING_BUFFER_SIZE + 1
+  range: ADC_RING_BUFFER_SIZE + 1 .. 999
 */
-uint16_t noise_max_time = 20;
+uint16_t noise_max_time = 150;
 /*
   minimum number of ticks for the clap noise. one tick is 1ms, clap noise is usually longer than 3ms, noise_min_time < noise_max_time
-  range: 9..99
+  range: 1..99
 */
-uint16_t noise_min_time = 7;	 
+uint16_t noise_min_time = 4;
 /*
   confirmation light intensity 
-  range: 1...255
+  range: 1...1023
 */
-uint16_t confirm_on_flash_lt = 255;
+uint16_t confirm_on_flash_lt = 1023;
 /*
   number of ticks for flash on confirmation time, one tick is 1ms, should be 300 
   range: 1...999
 */
-uint16_t confirm_on_flash_time = 300;
+uint16_t confirm_on_flash_time = 100;
 /*
-  number of ticks to wait after flash on confirm time, one tick is 1ms, should be about 100
-  range: 1...999
-*/
-/* uint16_t confirm_on_delay_time = 100; */
-/*
-  initial pwm value for confirm off, 500
-  range: 1...1023	
-*/
-/*uint16_t confirm_off_initial_pwm; */
-/*
-  number of ticks for confirmation off, initial_pwm is decreased by 1 for each tick, 500
-  range:1..1023		
-*/
-/* uint16_t confirm_off_time; */
-/*
-  idle time after which the light is turned off, value in ticks
+  idle time after which the light is turned off, value in ticks (one minute are 60*1000 ticks)
   range:1..2^32-1
 */
 uint32_t idle_time = 60UL*60UL*1000UL;
+//uint32_t idle_time = 10*1000UL;
 /*
   increment/decrement value for lt
   range:1..16, default is 4, should be power of 2
@@ -128,8 +133,9 @@ uint16_t lt_step = 4;
 
 
 /* ===== signals/variables ===== */
+int16_t noise_intensity = 600;
 int16_t adc_diff_val;
-uint8_t nd; /* 1, if adc_amplitude is above noise_intensity */
+uint8_t nd; /* 1, if adc_amplitude is above light_on_noise_intensity */
 uint8_t pm;	/* 0: no var pot movement, 1: var pot has changed, auto reset to 0 by state machine */
 uint16_t lt;		/* current light value 10 bit */
 uint16_t pot;	/* var potentiometer position 10 bit*/
@@ -319,13 +325,13 @@ int16_t adc_rb_get_min(void)
 
 /*
   Input: 
+    noise_intensity
     adc_diff_val
   Out: 
     nd	noise detection flag
   Internal Variables
     adc_amplitude
   Configuration Variables:
-    noise_intensity
 */
 void detect_noise(void)
 {
@@ -392,6 +398,7 @@ void state_machine(void)
   switch(state)
   {
     case STATE_LIGHT_OFF:
+      noise_intensity = light_on_noise_intensity;
       if ( pm != 0 )
       {
 	state = STATE_INCREMENT_LIGHT;
@@ -404,6 +411,7 @@ void state_machine(void)
       break;
       
     case STATE_LIGHT_OFF_NOISE:
+      noise_intensity = light_on_noise_intensity;
       if ( pm != 0 )
       {
 	state = STATE_INCREMENT_LIGHT;
@@ -424,6 +432,7 @@ void state_machine(void)
       break;
       
     case STATE_LIGHT_OFF_WAIT:
+      noise_intensity = light_on_noise_intensity;
       if ( pm != 0 )
       {
 	state = STATE_INCREMENT_LIGHT;
@@ -435,6 +444,7 @@ void state_machine(void)
       break;
       
     case STATE_LIGHT_OFF_FLASH:
+      noise_intensity = light_on_noise_intensity;
       if ( pm != 0 )
       {
 	state = STATE_INCREMENT_LIGHT;
@@ -447,6 +457,7 @@ void state_machine(void)
       break;
       
     case STATE_INCREMENT_LIGHT:
+      noise_intensity = light_off_noise_intensity;
       if ( pot == 0 )
       {
 	lt = 0;
@@ -472,6 +483,7 @@ void state_machine(void)
       break;
       
     case STATE_LIGHT_ON:
+      noise_intensity = light_off_noise_intensity;
       if ( pm != 0 )
       {
 	/* stay in this state */
@@ -481,7 +493,7 @@ void state_machine(void)
       {
 	state = STATE_DECREMENT_LIGHT;
       }
-      else if ( nd == 1 )
+      else if ( nd == 1 && is_light_off_with_noise != 0 )
       {
 	cnt_zero();
 	state = STATE_LIGHT_ON_NOISE;
@@ -493,6 +505,7 @@ void state_machine(void)
       break;
       
     case STATE_LIGHT_ON_NOISE:
+      noise_intensity = light_off_noise_intensity;
       if ( pm == 1 )
       {
 	/* lt = pot; */ /* done below */
@@ -514,6 +527,7 @@ void state_machine(void)
       break;
       
     case STATE_LIGHT_ON_WAIT:
+      noise_intensity = light_off_noise_intensity;
       if ( pm != 0 )
       {
 	/* stay here and copy pot value (see below), wait until noise goes away */
@@ -527,6 +541,7 @@ void state_machine(void)
       break;
       
     case STATE_DECREMENT_LIGHT:
+      noise_intensity = light_on_noise_intensity;
       if ( pm != 0 )
       {
 	state = STATE_INCREMENT_LIGHT;
@@ -545,6 +560,7 @@ void state_machine(void)
       break;
       
     default:
+      noise_intensity = light_on_noise_intensity;
       state = STATE_LIGHT_OFF;
       break;
   }
@@ -677,13 +693,14 @@ void task_1ms(void)
   /* out: lt */
   state_machine();
   
-  /*
+
+// bypass state machine and output noise detection signal
+/*  
   if ( nd == 0 )
     lt = 0;
   else
-    */
-  // lt = 0;
-  
+    lt = 1023;
+*/
   
   /* in: lt */
   /* out: duty, factor */
