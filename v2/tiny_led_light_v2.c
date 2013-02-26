@@ -123,7 +123,7 @@ uint16_t confirm_on_flash_time = 100;
   idle time after which the light is turned off, value in ticks (one minute are 60*1000 ticks)
   range:1..2^32-1
 */
-uint32_t idle_time = 60UL*60UL*1000UL;
+uint32_t idle_time = IDLE_MODE_MINUTES*60UL*1000UL;
 //uint32_t idle_time = 10*1000UL;
 /*
   increment/decrement value for lt
@@ -656,29 +656,6 @@ void setup_timer1_one_shot(void)
   }
 }
 
-
-/*=======================================================================*/
-void detect_idle_timeout(void)
-{
-  uint8_t x = adc_value >> 2;
-  if (  idle_detect_adc != x )
-  {
-    idle_detect_adc = x;
-    idle_cnt = 0;
-    is_idle = 0;
-  }
-  else
-  {
-    if ( idle_cnt > 500L*60L*IDLE_MODE_MINUTES )
-    {
-      is_idle = 1;      
-    }
-    else
-    {
-      idle_cnt++;
-    }
-  }
-}
 
 
 void task_1ms(void)
