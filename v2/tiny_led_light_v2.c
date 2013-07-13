@@ -79,10 +79,18 @@ uint8_t is_idle = 0;
 /* ===== calibration variables ===== */
 
 /*
+  enable noise detection
+  range: 0, 1
+*/
+uint8_t is_enable_noise_processing = 1;
+
+
+/*
   disallow switch off light by noise
   range: 0, 1
 */
 uint8_t is_light_off_with_noise = 1;
+
 
 /* 
   threshold: amplitude above this will be detected as clap sound
@@ -96,7 +104,7 @@ uint8_t is_light_off_with_noise = 1;
   light_off_noise_intensity		value to switch off the light
 */
 int16_t light_on_noise_intensity = 150;
-int16_t light_off_noise_intensity = 900;
+int16_t light_off_noise_intensity = 150;	// prev: 900
 
 /*
   maximum number of ticks for the clap noise. one tick is 1ms, clap noise is usually not longer than 20ms, noise_min_time < noise_max_time 
@@ -178,44 +186,51 @@ int16_t get_audio_adc(uint8_t gain_bit)
   uint8_t sign;
   int16_t sval;
   
-  /* datasheet recomends to turn off ADC for differntial measurement first */
-  ADCSRA = 0x00 | ADC_PRESCALAR;		/* turn off ADC */  
-
-  /* use PB3 and PB4 as input  */
-  DDRB &= ~_BV(3);
-  DDRB &= ~_BV(4);
-
-  /* enable, but do not start ADC (ADEN, Bit 7) */
-  /* clear the interrupt indicator flag (ADIF, Bit 4) */
-  ADCSRA = 0x90 | ADC_PRESCALAR;
-  
-  ADMUX = 6 | gain_bit;
-  /* enable bipolar mode, voltage diff may be higher or lower, result is signed */
-  ADCSRB = 0x080;
-  /* enable and start conversion  */
-  ADCSRA = 0xc0|ADC_PRESCALAR;
-  /* wait for conversion to be finished (ADIF, Bit 4) */
-  while ( (ADCSRA & _BV(4)) == 0 )
-    ;
-  /* return 8 bit result */
-  l = ADCL;
-  h = ADCH;
-  
-  /* save some power */
-  ADCSRA = 0x00 | ADC_PRESCALAR;		/* turn off ADC */  
-  
-  sign = 0;
-  val = (h<<8) | l ;
-  if ( val >= 512 )
+  if ( is_enable_noise_processing != 0 )
   {
-    sign = 1;
-    val = 1024-val ;
+    
+    /* datasheet recomends to turn off ADC for differntial measurement first */
+    ADCSRA = 0x00 | ADC_PRESCALAR;		/* turn off ADC */  
+
+    /* use PB3 and PB4 as input  */
+    DDRB &= ~_BV(3);
+    DDRB &= ~_BV(4);
+
+    /* enable, but do not start ADC (ADEN, Bit 7) */
+    /* clear the interrupt indicator flag (ADIF, Bit 4) */
+    ADCSRA = 0x90 | ADC_PRESCALAR;
+    
+    ADMUX = 6 | gain_bit;
+    /* enable bipolar mode, voltage diff may be higher or lower, result is signed */
+    ADCSRB = 0x080;
+    /* enable and start conversion  */
+    ADCSRA = 0xc0|ADC_PRESCALAR;
+    /* wait for conversion to be finished (ADIF, Bit 4) */
+    while ( (ADCSRA & _BV(4)) == 0 )
+      ;
+    /* return 8 bit result */
+    l = ADCL;
+    h = ADCH;
+    
+    /* save some power */
+    ADCSRA = 0x00 | ADC_PRESCALAR;		/* turn off ADC */  
+    
+    sign = 0;
+    val = (h<<8) | l ;
+    if ( val >= 512 )
+    {
+      sign = 1;
+      val = 1024-val ;
+    }
+    
+    sval = val;
+    if ( sign != 0 )
+      sval = -sval;
   }
-  
-  sval = val;
-  if ( sign != 0 )
-    sval = -sval;
-  
+  else
+  {
+    sval = 0;
+  }
   
   return sval;  
 }
@@ -335,16 +350,24 @@ int16_t adc_rb_get_min(void)
 */
 void detect_noise(void)
 {
-  /* read signal adc_diff_val and put it into the ring buffer */
-  adc_rb_add(adc_diff_val);
-  
-  /* calculate peak to peak distance for the adc values in the ring buffer */
-  adc_amplitude = adc_rb_get_max() - adc_rb_get_min();
-  
-  /* check if we have a noise detected */
-  nd = 0;
-  if ( adc_amplitude > noise_intensity )
-    nd = 1;
+  if ( is_enable_noise_processing != 0 )
+  {
+
+    /* read signal adc_diff_val and put it into the ring buffer */
+    adc_rb_add(adc_diff_val);
+    
+    /* calculate peak to peak distance for the adc values in the ring buffer */
+    adc_amplitude = adc_rb_get_max() - adc_rb_get_min();
+    
+    /* check if we have a noise detected */
+    nd = 0;
+    if ( adc_amplitude > noise_intensity )
+      nd = 1;
+  }
+  else
+  {
+    nd = 0;
+  }
 }
 
 
