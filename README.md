@@ -17,7 +17,7 @@ PWM LED Light controller, version 1
   * Auto light off after 1 hour (adjustable in the source code)
   * Software [download](http://code.google.com/p/tinyledlight/downloads/list)
 
-![http://github.com/olikraus/tinyledlight/blob/master/v1/tiny_led_light_bw_100.png](http://github.com/olikraus/tinyledlight/blob/master/v1/tiny_led_light_bw_100.png)
+![https://github.com/olikraus/tinyledlight/blob/master/v1/tiny_led_light_bw_100.png](https://github.com/olikraus/tinyledlight/blob/master/v1/tiny_led_light_bw_100.png)
 
   * Use CNY17-4
   * `R1` can be 10K, 50K or 100K, use linear variant.
