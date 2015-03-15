@@ -3,12 +3,11 @@ Schematic and software for a PWM LED Light controller, based on ATTiny 85
 # V2 #
 
 I have started to work on version 2 of the LED controller.
-https://github.com/olikraus/tinyledlight/blob/master/v2/tiny_led_light_v2_bw_100.png
-![http://github.com/olikraus/tinyledlight/blob/master/v2/tiny_led_light_v2_bw_100.png](http://github.com/olikraus/tinyledlight/blob/master/v2/tiny_led_light_v2_bw_100.png)
+![https://github.com/olikraus/tinyledlight/blob/master/v2/tiny_led_light_v2_bw_100.png](https://github.com/olikraus/tinyledlight/blob/master/v2/tiny_led_light_v2_bw_100.png)
 
 State Machine
 
-![http://github.com/olikraus/tinyledlight/blob/master/v2/tiny_led_light_v2_state_machine_700px.png](http://github.com/olikraus/tinyledlight/blob/master/v2/tiny_led_light_v2_state_machine_700px.png)
+![https://github.com/olikraus/tinyledlight/blob/master/v2/tiny_led_light_v2_state_machine_700px.png](https://github.com/olikraus/tinyledlight/blob/master/v2/tiny_led_light_v2_state_machine_700px.png)
 
 
 # V1 #
