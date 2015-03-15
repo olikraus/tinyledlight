@@ -3,12 +3,12 @@ Schematic and software for a PWM LED Light controller, based on ATTiny 85
 # V2 #
 
 I have started to work on version 2 of the LED controller.
-
-![http://tinyledlight.googlecode.com/hg/v2/tiny_led_light_v2_bw_100.png](http://tinyledlight.googlecode.com/hg/v2/tiny_led_light_v2_bw_100.png)
+https://github.com/olikraus/tinyledlight/blob/master/v2/tiny_led_light_v2_bw_100.png
+![http://github.com/olikraus/tinyledlight/blob/master/v2/tiny_led_light_v2_bw_100.png](http://github.com/olikraus/tinyledlight/blob/master/v2/tiny_led_light_v2_bw_100.png)
 
 State Machine
 
-![http://tinyledlight.googlecode.com/hg/v2/tiny_led_light_v2_state_machine_700px.png](http://tinyledlight.googlecode.com/hg/v2/tiny_led_light_v2_state_machine_700px.png)
+![http://github.com/olikraus/tinyledlight/blob/master/v2/tiny_led_light_v2_state_machine_700px.png](http://github.com/olikraus/tinyledlight/blob/master/v2/tiny_led_light_v2_state_machine_700px.png)
 
 
 # V1 #
@@ -18,7 +18,7 @@ PWM LED Light controller, version 1
   * Auto light off after 1 hour (adjustable in the source code)
   * Software [download](http://code.google.com/p/tinyledlight/downloads/list)
 
-![http://tinyledlight.googlecode.com/hg/v1/tiny_led_light_bw_100.png](http://tinyledlight.googlecode.com/hg/v1/tiny_led_light_bw_100.png)
+![http://github.com/olikraus/tinyledlight/blob/master/v1/tiny_led_light_bw_100.png](http://github.com/olikraus/tinyledlight/blob/master/v1/tiny_led_light_bw_100.png)
 
   * Use CNY17-4
   * `R1` can be 10K, 50K or 100K, use linear variant.
